@@ -1,0 +1,11 @@
+[build-system]
+requires = ["maturin>=1.2"]
+build-backend = "maturin"
+
+[project]
+name = "qitesse"
+version = "0.0.1"
+description = "Rust quantum simulator Python bindings"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{name = "Osama Elmahdy", email = "you@example.com"}]
