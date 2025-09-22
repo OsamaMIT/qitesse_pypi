@@ -1,6 +1,6 @@
-# rust_qsim
+# qitesse
 
-High-performance Rust state-vector quantum simulator with Python bindings.
+Python api for qitesse, the high-performance Rust state-vector quantum simulator.
 
 Build & run locally:
 
@@ -16,4 +16,4 @@ Build & run locally:
 
 3. Run example:
 
-`python examples/python_example.py`
+`python examples/h_example.py`
