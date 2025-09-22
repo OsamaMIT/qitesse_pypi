@@ -27,11 +27,6 @@ jobs:
 
       - name: Install Python requirements
         run: python -m pip install maturin twine
-
-      - name: Clean old builds
-        run: |
-          rm -rf dist/*
-          rm -rf target/wheels/*
       
       - name: Build release distributions
         run: |
