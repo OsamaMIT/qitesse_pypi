@@ -6,6 +6,7 @@
 Python API for qitesse-sim, the performant Rust quantum simulator.
 
 qitesse is built upon qitesse-sim, the high-performance CPU-based state-vector simulator for quantum circuits, fully built in Rust.
+
 This PyPI module provides a high-level python interface for the purpose of production, research, and development.
 
 ## Build & run locally:
