@@ -5,7 +5,15 @@ build-backend = "maturin"
 [project]
 name = "qitesse"
 version = "0.0.1"
-description = "Rust quantum simulator Python bindings"
+description = "qitesse: performant quantum circuit simulation in Python"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [{name = "Osama Elmahdy", email = "you@example.com"}]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
