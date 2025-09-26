@@ -12,6 +12,6 @@ crate-type = ["cdylib"]
 num-complex = "0.4"
 rand = "0.8"
 rayon = "1.6"
-pyo3 = { version = "0.19", features = ["extension-module", "auto-initialize"] }
+pyo3 = { version = "0.19", features = ["extension-module"] }
 numpy = "0.19"
 num_cpus = "1.17.0"
