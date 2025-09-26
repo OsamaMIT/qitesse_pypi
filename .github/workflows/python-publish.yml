@@ -15,28 +15,61 @@ permissions:
   contents: read
 
 jobs:
-  release-build:
-    runs-on: ubuntu-latest
-
+  wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-13, macos-14]  # Linux, Win, macOS (Intel + Apple Silicon)
+        py: ["3.8","3.9","3.10","3.11","3.12"]                  # no 3.13
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: ${{ matrix.py }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install -U pip maturin
+      - name: Build wheel (Linux manylinux2014)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: maturin build --release --manylinux 2014 --interpreter python
+      - name: Build wheel (non-Linux)
+        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
+        run: maturin build --release --interpreter python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-py${{ matrix.py }}
+          path: target/wheels/*.whl
 
-      - name: Install Python requirements
-        run: python -m pip install maturin twine
-      
-      - name: Build release distributions
-        run: |
-          # NOTE: put your own distribution build steps here.
-          maturin build --release
+  sdist:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -U pip maturin
+      - run: maturin sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
 
-      - name: Publish package to PyPI
+  publish:
+    needs: [wheels, sdist]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+      - run: |
+          mkdir -p dist
+          find dist-all -name "*.whl" -o -name "*.tar.gz" -exec cp {} dist/ \;
+      - run: python -m pip install -U twine
+      - name: Upload to PyPI (API token)
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload target/wheels/*
+        run: twine upload --skip-existing dist/*
+
 
 
