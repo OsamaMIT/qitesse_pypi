@@ -15,12 +15,6 @@ jobs:
         os: [ubuntu-22.04, macos-13, macos-14, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
-
-      # Avoid embedding requirement that breaks manylinux builds
-      - name: Disable pyo3 auto-initialize
-        run: sed -i 's/"auto-initialize",\?//g' Cargo.toml
-
       - uses: dtolnay/rust-toolchain@stable
 
       # Build wheels. On Linux, this runs in manylinux2014 automatically.
