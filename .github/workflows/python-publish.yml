@@ -7,88 +7,37 @@ permissions:
   contents: read
 
 jobs:
-  # ---- Build wheels on all OSes ----
   release-build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Linux is handled via docker (manylinux2014), macOS & Windows build natively
-        os: [ubuntu-22.04, macos-13, macos-14, windows-latest]
-        py: ["3.8","3.9","3.10","3.11","3.12"]
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (non-Linux)
-        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
-        uses: dtolnay/rust-toolchain@stable
-
-      # ---------- LINUX (manylinux2014) ----------
-      - name: Build Linux wheels (manylinux2014 cp38–cp312)
-        if: startsWith(matrix.os, 'ubuntu')
+      - name: Build Linux wheels (manylinux2014, Py 3.8–3.12) + sdist
         run: |
           docker run --rm -v "$PWD":/io -w /io quay.io/pypa/manylinux2014_x86_64 \
             /bin/bash -lc '
-              set -e
+              set -euo pipefail
+              unset LD_LIBRARY_PATH  # avoid leaking host libs
               curl -sSf https://sh.rustup.rs | sh -s -- -y
-              source $HOME/.cargo/env
+              source "$HOME/.cargo/env"
+              # Build wheels for the manylinux-provided CPython versions
               for PY in cp38-cp38 cp39-cp39 cp310-cp310 cp311-cp311 cp312-cp312; do
                 /opt/python/$PY/bin/python -m pip install -U pip maturin
                 /opt/python/$PY/bin/maturin build --release --manylinux 2014 \
                   --interpreter /opt/python/$PY/bin/python
               done
+              # Also produce a source distribution
+              /opt/python/cp311-cp311/bin/python -m pip install -U pip maturin
+              /opt/python/cp311-cp311/bin/maturin sdist
+              # Optional: show audit info for sanity
+              auditwheel show target/wheels/*.whl | sed -n "1,120p"
             '
 
-      # ---------- macOS / Windows ----------
-      - name: Setup Python
-        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.py }}
-
-      - name: Install tools
-        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
-        run: python -m pip install -U maturin
-
-      - name: Build wheel
-        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
-        run: maturin build --release --interpreter python
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.os }}-py${{ matrix.py }}
-          path: target/wheels/*.whl
-
-  # ---- Build sdist once (any OS) ----
-  sdist:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: python -m pip install -U maturin
-      - run: maturin sdist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
-
-  # ---- Upload everything to PyPI ----
-  publish:
-    needs: [release-build, sdist]
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist-all
-      - run: |
-          mkdir -p dist
-          find dist-all -name "*.whl" -o -name "*.tar.gz" -exec cp {} dist/ \;
-      - run: python -m pip install -U twine
-      - name: Upload to PyPI (API token)
+      - name: Publish package to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload --skip-existing dist/*
+        run: |
+          python -m pip install -U twine
+          twine upload --skip-existing target/wheels/* dist/*
