@@ -7,37 +7,64 @@ permissions:
   contents: read
 
 jobs:
-  release-build:
-    runs-on: ubuntu-latest
+  wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-13, macos-14, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Linux wheels (manylinux2014, Py 3.8–3.12) + sdist
-        run: |
-          docker run --rm -v "$PWD":/io -w /io quay.io/pypa/manylinux2014_x86_64 \
-            /bin/bash -lc '
-              set -euo pipefail
-              unset LD_LIBRARY_PATH  # avoid leaking host libs
-              curl -sSf https://sh.rustup.rs | sh -s -- -y
-              source "$HOME/.cargo/env"
-              # Build wheels for the manylinux-provided CPython versions
-              for PY in cp38-cp38 cp39-cp39 cp310-cp310 cp311-cp311 cp312-cp312; do
-                /opt/python/$PY/bin/python -m pip install -U pip maturin
-                /opt/python/$PY/bin/maturin build --release --manylinux 2014 \
-                  --interpreter /opt/python/$PY/bin/python
-              done
-              # Also produce a source distribution
-              /opt/python/cp311-cp311/bin/python -m pip install -U pip maturin
-              /opt/python/cp311-cp311/bin/maturin sdist
-              # Optional: show audit info for sanity
-              auditwheel show target/wheels/*.whl | sed -n "1,120p"
-            '
+      # Avoid embedding requirement that breaks manylinux builds
+      - name: Disable pyo3 auto-initialize
+        run: sed -i 's/"auto-initialize",\?//g' Cargo.toml
 
-      - name: Publish package to PyPI
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Build wheels. On Linux, this runs in manylinux2014 automatically.
+      - name: Build wheels with maturin
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: "2014"   # ensures manylinux_2_17 compliance on Linux
+          command: build
+          args: >
+            --release
+            -i python3.8 -i python3.9 -i python3.10 -i python3.11 -i python3.12
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: target/wheels/*.whl
+
+  sdist:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m pip install -U maturin
+      - run: maturin sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          # maturin sometimes places the sdist under target/wheels/
+          path: |
+            dist/*.tar.gz
+            target/wheels/*.tar.gz
+
+  publish:
+    needs: [wheels, sdist]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+      - run: |
+          mkdir -p dist
+          find dist-all -name "*.whl" -o -name "*.tar.gz" -exec cp {} dist/ \;
+      - run: python -m pip install -U twine
+      - name: Upload to PyPI (API token)
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          python -m pip install -U twine
-          twine upload --skip-existing target/wheels/* dist/*
+        run: twine upload --skip-existing dist/*
