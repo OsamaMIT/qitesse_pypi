@@ -7,53 +7,92 @@ permissions:
   contents: read
 
 jobs:
-  wheels:
+  # ---------- Linux: build manylinux2014 wheels for cp38–cp312 ----------
+  wheels-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cross-platform patch: drop pyo3 "auto-initialize"
+      - name: Patch Cargo.toml (remove pyo3 auto-initialize)
+        run: |
+          python - <<'PY'
+          import io, re, sys, pathlib
+          p = pathlib.Path("Cargo.toml")
+          s = p.read_text()
+          s = re.sub(r'("auto-initialize"\s*,\s*|,\s*"auto-initialize")', '', s)
+          p.write_text(s)
+          print("Patched Cargo.toml")
+          PY
+
+      - name: Build Linux wheels (manylinux2014) and sdist
+        run: |
+          docker run --rm -v "$PWD":/io -w /io quay.io/pypa/manylinux2014_x86_64 /bin/bash -lc '
+            set -euo pipefail
+            unset LD_LIBRARY_PATH
+            curl -sSf https://sh.rustup.rs | sh -s -- -y
+            source "$HOME/.cargo/env"
+            for PY in cp38-cp38 cp39-cp39 cp310-cp310 cp311-cp311 cp312-cp312; do
+              /opt/python/$PY/bin/python -m pip install -U pip numpy maturin
+              /opt/python/$PY/bin/maturin build --release --manylinux 2014 \
+                --interpreter /opt/python/$PY/bin/python
+            done
+            # sdist once
+            /opt/python/cp311-cp311/bin/python -m pip install -U maturin
+            /opt/python/cp311-cp311/bin/maturin sdist
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux
+          path: |
+            target/wheels/*.whl
+            dist/*.tar.gz
+            target/wheels/*.tar.gz
+
+  # ---------- macOS & Windows: build for the matrix Python only ----------
+  wheels-mac-win:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-13, macos-14, windows-latest]
-
+        os: [macos-13, macos-14, windows-latest]
+        py: ["3.8","3.9","3.10","3.11","3.12"]
     steps:
       - uses: actions/checkout@v4
 
-      # Avoid embedding requirement that breaks manylinux builds
-      - name: Disable pyo3 auto-initialize
-        run: sed -i 's/"auto-initialize",\?//g' Cargo.toml
-        
+      - name: Patch Cargo.toml (remove pyo3 auto-initialize)
+        run: |
+          python - <<'PY'
+          import io, re, sys, pathlib
+          p = pathlib.Path("Cargo.toml")
+          s = p.read_text()
+          s = re.sub(r'("auto-initialize"\s*,\s*|,\s*"auto-initialize")', '', s)
+          p.write_text(s)
+          print("Patched Cargo.toml")
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.py }}
+
       - uses: dtolnay/rust-toolchain@stable
 
-      # Build wheels. On Linux, this runs in manylinux2014 automatically.
-      - name: Build wheels with maturin
-        uses: PyO3/maturin-action@v1
-        with:
-          manylinux: "2014"   # ensures manylinux_2_17 compliance on Linux
-          command: build
-          args: >
-            --release
-            -i python3.8 -i python3.9 -i python3.10 -i python3.11 -i python3.12
+      # NumPy is needed at build time for the Rust `numpy` crate (headers)
+      - name: Install build tools
+        run: python -m pip install -U pip numpy maturin
+
+      - name: Build wheel for current Python
+        run: maturin build --release --interpreter python
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-py${{ matrix.py }}
           path: target/wheels/*.whl
 
-  sdist:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: python -m pip install -U maturin
-      - run: maturin sdist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          # maturin sometimes places the sdist under target/wheels/
-          path: |
-            dist/*.tar.gz
-            target/wheels/*.tar.gz
-
+  # ---------- Publish everything ----------
   publish:
-    needs: [wheels, sdist]
+    needs: [wheels-linux, wheels-mac-win]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
